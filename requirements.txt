@@ -2,5 +2,5 @@ awswrangler~=3.3.0
 pandas~=1.5.3
 numpy~=1.24.4
 boto3~=1.26.126
-s5~=1.0b7
+s5 @ git+https://github.com/owentmfoo/S5
 pvlib~=0.9.0
