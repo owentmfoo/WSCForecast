@@ -6,12 +6,24 @@ compile it into SolarSim Weather files.
 The file will be combined as a docker image and be push to AWS ECR and to be 
 run on lambda.
  
+## Combining forecast
+`combine_forecast.py` takes the forecast obtained from solcast and tomorrow and
+combines them.
+
+To deal with the fact that the two different forecast operates in different 
+resolution, the code will do an outer merge and then linearly interpolate to 
+fill in the gaps.
+
+The values from Solcast are period averages, so we will shift the timestamps \
+forward by half the period so the values correspond to the centre of the period. 
+
 ## Deploying to AWS Lambda
 This section is mostly based off [this article](https://docs.aws.amazon.com/lambda/latest/dg/python-image.html#python-image-instructions).
 
 Before you run the commands:
 * replace the account ID
 * replace role arn 
+* add road file to the top level directory 
 
 For the first time:
 ```shell

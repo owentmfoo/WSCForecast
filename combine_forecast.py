@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import awswrangler as wr
 import pandas as pd
@@ -110,11 +110,6 @@ def calc_sunpos(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def dni_correction(df: pd.DataFrame) -> pd.DataFrame:
-    """To add in a row at sunrise and sunset to force DNI to tbe 0"""
-    raise NotImplementedError
-
-
 def combine_forecast(
     solcast: pd.DataFrame,
     tomorrow: pd.DataFrame,
@@ -184,6 +179,10 @@ def combine_forecast(
     )
     solcast.index = solcast.index.tz_localize("UTC")
 
+    # shift the solcast timestamps forward bu 15 min so the values corresponds
+    #  the centre of the period.
+    solcast = solcast.shift(-15, "min")
+
     tomorrow = extract_data(
         tomorrow.loc[
             :,
@@ -240,11 +239,11 @@ def combine_forecast(
     # TODO: insert the sunrise and sunset row before interpolate
 
     weather = tp.SSWeather()
-    # weather.data = pd.DataFrame(columns=forecast.columns)
     # split it up per location and interpolate to fill gaps.
     for dist in forecast.index.levels[0].unique():
         spot_forecast = forecast.loc[dist].interpolate()
         spot_forecast.loc[:, "Distance (km)"] = dist
+        spot_forecast = spot_forecast.sort_index()
         weather.data = pd.concat([weather.data, spot_forecast.loc[race_start:race_end]])
 
     # TODO: what if there are more spots from tomorrow than from solcast?
@@ -321,8 +320,8 @@ def main(event, context):
     """Entry function from lambda functions on AWS.
 
     Args:
-        event: event object from AWS
-        context: context object from AWS
+        event: event object from AWS (unused)
+        context: context object from AWS (unused)
 
     Returns:
         None
@@ -330,19 +329,26 @@ def main(event, context):
     s3 = boto3.client("s3")
     # TODO: edit these before uploading to aws
     tz = pytz.timezone("Australia/Darwin")
-    race_start = tz.localize(datetime(2023, 8, 17))
-    race_end = tz.localize(datetime(2023, 8, 23))
+    race_start = tz.localize(datetime(2023, 8, 23))
+    race_end = tz.localize(datetime(2023, 8, 30))
+    startime = race_start - timedelta(1)
     OUTPUT_FILE = "/tmp/Weather-DEV2.dat"
 
-    # tomorrow = wr.s3.read_parquet("s3://solcastresults/tomorrow/", dataset=True,
-    #                               last_modified_begin=startime,
-    #                               last_modified_end=race_end)
-    # solcast = wr.s3.read_parquet("s3://solcastresults/solcast/", dataset=True,
-    #                              last_modified_begin=startime,
-    #                              last_modified_end=race_end)
+    tomorrow = wr.s3.read_parquet(
+        "s3://solcastresults/tomorrow/",
+        dataset=True,
+        last_modified_begin=startime,
+        last_modified_end=race_end,
+    )
+    solcast = wr.s3.read_parquet(
+        "s3://solcastresults/solcast/",
+        dataset=True,
+        last_modified_begin=startime,
+        last_modified_end=race_end,
+    )
 
-    tomorrow = pd.read_parquet("tomorrow.parquet")
-    solcast = pd.read_parquet("solcast.parquet")
+    # tomorrow = pd.read_parquet("tomorrow.parquet")
+    # solcast = pd.read_parquet("solcast.parquet")
     road = tp.TecplotData(r"RoadFile-LatLon-2021.dat")
     road_df = road.data
     # TODO: pre trim a smaller selection before feeding it in?
