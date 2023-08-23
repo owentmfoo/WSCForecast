@@ -335,13 +335,13 @@ def main(event, context):
     OUTPUT_FILE = "/tmp/Weather-DEV2.dat"
 
     tomorrow = wr.s3.read_parquet(
-        "s3://solcastresults/tomorrow/",
+        "s3://duscweather/tomorrow/",
         dataset=True,
         last_modified_begin=startime,
         last_modified_end=race_end,
     )
     solcast = wr.s3.read_parquet(
-        "s3://solcastresults/solcast/",
+        "s3://duscweather/solcast/",
         dataset=True,
         last_modified_begin=startime,
         last_modified_end=race_end,
@@ -359,15 +359,15 @@ def main(event, context):
     #  write to S3 and overwrite the latest
     wr.s3.upload(
         OUTPUT_FILE,
-        f"s3://solcastresults/weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-{datetime.now(tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')}.dat",
+        f"s3://duscweather/weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-{datetime.now(tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')}.dat",
     )
     wr.s3.upload(
         OUTPUT_FILE,
-        f"s3://solcastresults/weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-latest.dat",
+        f"s3://duscweather/weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-latest.dat",
     )
     response = s3.put_object_acl(
         ACL="public-read",
-        Bucket="solcastresults",
+        Bucket="duscweather",
         Key=f"weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-latest.dat",
     )
 

@@ -30,7 +30,7 @@ for location in locations:
 
 wr.s3.to_parquet(
     df=df,
-    path=f"s3://solcastresults/tomorrow/",
+    path=f"s3://duscweather/tomorrow/",
     dataset=True,
     mode="append",
     filename_prefix="tomorrow_",
