@@ -1,11 +1,12 @@
+"""Get forecast from solcast and stores it on S3"""
 import logging
 import awswrangler as wr
 import pandas as pd
 from S5.Weather.solcast_forecast import send_request
+from config import solcast_api_key
 
 logging.getLogger().setLevel(logging.INFO)
 logging.info("lambda function started")
-from config import solcast_api_key
 
 API_KEY = solcast_api_key
 
@@ -30,7 +31,7 @@ for location in locations:
 
 wr.s3.to_parquet(
     df=df,
-    path=f"s3://duscweather/solcast/",
+    path="s3://duscweather/solcast/",
     dataset=True,
     mode="append",
     filename_prefix="solcast_",

@@ -1,3 +1,17 @@
+"""Combines the forecast gathered from solcast and tomorrow.io
+
+Combines the forecast gathered from solcast and tomorrow.io and publishes it to
+S3.
+
+- obtains forecasts stored on S3 by get_solcast_forecast and
+get_tomorrow_forecast.
+- outer merge between the two dataset and linearly interpolate to fill gaps
+- convert wind from 10m to 1m
+- publishes the weather file to S3 and set it to public, "Weather-Latest.dat"
+gets overwritten and it also saves a timestamped copy.
+- title of the weather file contains timestamps of when the forecast was
+made and when the weather file is created.
+"""
 import logging
 from datetime import datetime, timezone, timedelta
 
@@ -14,11 +28,12 @@ logging.getLogger().setLevel(logging.DEBUG)
 
 
 def extract_data(forecast_source: pd.DataFrame, road: pd.DataFrame) -> pd.DataFrame:
-    """Maps forecast locations to distance along the route and keep the latest forecast.
+    """Maps forecast locations to distance along the route and keep the latest
+    forecast.
 
-    Maps the lat,long from the forecast to distance along the route by taking the
-    argmin of the euclidian distance. If the spot is more than 0.1 km away from the route,
-    the spot will be dropped.
+    Maps the lat,long from the forecast to distance along the route by taking
+    the argmin of the euclidian distance. If the spot is more than 0.1 km away
+    from the route, the spot will be dropped.
     Only the latest forecast of each spot will be kept.
 
     Args:
@@ -316,7 +331,7 @@ def combine_forecast(
     return weather
 
 
-def main(event, context):
+def main(event, context):  # pylint: disable=unused-argument
     """Entry function from lambda functions on AWS.
 
     Args:
@@ -332,7 +347,7 @@ def main(event, context):
     race_start = tz.localize(datetime(2023, 8, 23))
     race_end = tz.localize(datetime(2023, 8, 30))
     startime = race_start - timedelta(1)
-    OUTPUT_FILE = "/tmp/Weather-DEV2.dat"
+    output_file = "/tmp/Weather-DEV2.dat"
 
     tomorrow = wr.s3.read_parquet(
         "s3://duscweather/tomorrow/",
@@ -354,18 +369,21 @@ def main(event, context):
     # TODO: pre trim a smaller selection before feeding it in?
 
     weather = combine_forecast(solcast, tomorrow, road_df, race_start, race_end)
-    weather.write_tecplot(OUTPUT_FILE)
+    weather.write_tecplot(output_file)
 
     #  write to S3 and overwrite the latest
     wr.s3.upload(
-        OUTPUT_FILE,
-        f"s3://duscweather/weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-{datetime.now(tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')}.dat",
+        output_file,
+        f"s3://duscweather/weather_files"
+        f"{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-"
+        f"{datetime.now(tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')}.dat",
     )
     wr.s3.upload(
-        OUTPUT_FILE,
-        f"s3://duscweather/weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-latest.dat",
+        output_file,
+        f"s3://duscweather/weather_files"
+        f"{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-latest.dat",
     )
-    response = s3.put_object_acl(
+    response = s3.put_object_acl(  # pylint: disable=unused-variable
         ACL="public-read",
         Bucket="duscweather",
         Key=f"weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/Weather-latest.dat",
