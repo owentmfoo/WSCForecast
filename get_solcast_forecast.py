@@ -22,6 +22,7 @@ locations = [
     [-16.262330910217, 133.37694753742824, "Daly_Waters"],
 ]
 
+df = None
 for location in locations:
     loc_df = send_request(location[0], location[1], API_KEY, location[2])
     try:

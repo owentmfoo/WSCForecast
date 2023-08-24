@@ -3,10 +3,10 @@ import logging
 import awswrangler as wr
 import pandas as pd
 from S5.Weather.tomorrow_forecast import send_request
+from config import tomorrow_api_key
 
 logging.getLogger().setLevel(logging.INFO)
 logging.info("lambda function started")
-from config import tomorrow_api_key
 
 API_KEY = tomorrow_api_key
 
@@ -22,6 +22,7 @@ locations = [
     [-16.262330910217, 133.37694753742824, "Daly_Waters"],
 ]
 
+df = None
 for location in locations:
     loc_df = send_request(location[0], location[1], API_KEY, location[2])
     try:
