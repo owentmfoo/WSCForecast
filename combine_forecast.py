@@ -27,8 +27,7 @@ import pytz
 logging.getLogger().setLevel(logging.DEBUG)
 
 
-def extract_data(forecast_source: pd.DataFrame,
-                 road: pd.DataFrame) -> pd.DataFrame:
+def extract_data(forecast_source: pd.DataFrame, road: pd.DataFrame) -> pd.DataFrame:
     """Maps forecast locations to distance along the route and keep the latest
     forecast.
 
@@ -48,8 +47,7 @@ def extract_data(forecast_source: pd.DataFrame,
         KeyError:If columns are missing from the input DataFrames.
 
     """
-    if ("Distance (km)" not in road.columns) and (
-            road.index.name != "Distance (km)"):
+    if ("Distance (km)" not in road.columns) and (road.index.name != "Distance (km)"):
         raise KeyError("road missing Distance (km)")
     if road.index.name != "Distance (km)":
         road.set_index("Distance (km)", inplace=True)
@@ -116,8 +114,7 @@ def calc_sunpos(df: pd.DataFrame) -> pd.DataFrame:
     """
     if not isinstance(df.index, pd.DatetimeIndex):
         raise AttributeError("DataFrame index must DateTimeIndex.")
-    sun_pos = solarposition.get_solarposition(df.index, df.Latitude,
-                                              df.Longitude)
+    sun_pos = solarposition.get_solarposition(df.index, df.Latitude, df.Longitude)
     sun_pos.loc[:, "azimuth"] = sun_pos["azimuth"].apply(
         lambda x: x if x < 180 else x - 360
     )
@@ -129,11 +126,11 @@ def calc_sunpos(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def combine_forecast(
-        solcast: pd.DataFrame,
-        tomorrow: pd.DataFrame,
-        road: pd.DataFrame,
-        race_start: datetime,
-        race_end: datetime,
+    solcast: pd.DataFrame,
+    tomorrow: pd.DataFrame,
+    road: pd.DataFrame,
+    race_start: datetime,
+    race_end: datetime,
 ) -> tp.SSWeather:
     """Combines forecast from solcast and tomorrow.io
 
@@ -183,15 +180,15 @@ def combine_forecast(
 
     solcast = extract_data(
         solcast.loc[
-        :,
-        [
-            "DirectSun (W/m2)",
-            "DiffuseSun (W/m2)",
-            "Longitude",
-            "Latitude",
-            "period_end",
-            "prediction_date",
-        ],
+            :,
+            [
+                "DirectSun (W/m2)",
+                "DiffuseSun (W/m2)",
+                "Longitude",
+                "Latitude",
+                "period_end",
+                "prediction_date",
+            ],
         ],
         road,
     )
@@ -203,17 +200,17 @@ def combine_forecast(
 
     tomorrow = extract_data(
         tomorrow.loc[
-        :,
-        [
-            "AirPress (Pa)",
-            "AirTemp (degC)",
-            "WindDir (deg)",
-            "WindVel (m/s)",
-            "Longitude",
-            "Latitude",
-            "period_end",
-            "prediction_date",
-        ],
+            :,
+            [
+                "AirPress (Pa)",
+                "AirTemp (degC)",
+                "WindDir (deg)",
+                "WindVel (m/s)",
+                "Longitude",
+                "Latitude",
+                "period_end",
+                "prediction_date",
+            ],
         ],
         road,
     )
@@ -226,32 +223,32 @@ def combine_forecast(
 
     forecast = pd.merge(
         tomorrow.loc[
-        :,
-        [
-            "Distance (km)",
-            "AirPress (Pa)",
-            "AirTemp (degC)",
-            "WindDir (deg)",
-            "WindVel (m/s)",
-            "Latitude",
-            "Longitude",
-        ],
+            :,
+            [
+                "Distance (km)",
+                "AirPress (Pa)",
+                "AirTemp (degC)",
+                "WindDir (deg)",
+                "WindVel (m/s)",
+                "Latitude",
+                "Longitude",
+            ],
         ],
         solcast.loc[
-        :,
-        [
-            "Distance (km)",
-            "DirectSun (W/m2)",
-            "DiffuseSun (W/m2)",
-        ],
+            :,
+            [
+                "Distance (km)",
+                "DirectSun (W/m2)",
+                "DiffuseSun (W/m2)",
+            ],
         ].astype(np.float64),
         how="outer",
         on=["period_end", "Distance (km)"],
     )
     forecast = (
         forecast.reset_index()
-            .set_index(["Distance (km)", "period_end"])
-            .sort_values(by=["Distance (km)", "period_end"])
+        .set_index(["Distance (km)", "period_end"])
+        .sort_values(by=["Distance (km)", "period_end"])
     )
 
     # TODO: insert the sunrise and sunset row before interpolate
@@ -262,8 +259,7 @@ def combine_forecast(
         spot_forecast = forecast.loc[dist].interpolate()
         spot_forecast.loc[:, "Distance (km)"] = dist
         spot_forecast = spot_forecast.sort_index()
-        weather.data = pd.concat(
-            [weather.data, spot_forecast.loc[race_start:race_end]])
+        weather.data = pd.concat([weather.data, spot_forecast.loc[race_start:race_end]])
 
     # TODO: what if there are more spots from tomorrow than from solcast?
     #  need spatial interpolation as well
@@ -273,15 +269,13 @@ def combine_forecast(
         dist = forecast.index.levels[0].unique().min()
         spot_forecast = forecast.loc[dist].interpolate()
         spot_forecast.loc[:, "Distance (km)"] = 0
-        weather.data = pd.concat(
-            [weather.data, spot_forecast.loc[race_start:race_end]])
+        weather.data = pd.concat([weather.data, spot_forecast.loc[race_start:race_end]])
 
     if 3030 not in spot_forecast.loc[:, "Distance (km)"]:
         dist = forecast.index.levels[0].unique().max()
         spot_forecast = forecast.loc[dist].interpolate()
         spot_forecast.loc[:, "Distance (km)"] = 3030
-        weather.data = pd.concat(
-            [weather.data, spot_forecast.loc[race_start:race_end]])
+        weather.data = pd.concat([weather.data, spot_forecast.loc[race_start:race_end]])
 
     missing = weather.data.loc[weather.data.isna().sum(axis=1) > 0]
     if missing.index.shape != (0,):
@@ -292,8 +286,7 @@ def combine_forecast(
             missing.isna().sum().sum(),
         )
         for i, row in missing.iterrows():
-            logging.debug("Missing data at %s %s", i,
-                          row.index[row.isna()].to_list())
+            logging.debug("Missing data at %s %s", i, row.index[row.isna()].to_list())
 
     weather.data = calc_sunpos(weather.data)
 
@@ -311,19 +304,21 @@ def combine_forecast(
     weather.zone.nj = weather.data.loc[:, "Distance (km)"].nunique()
     weather.zone.ni = weather.data.iloc[:, 0].count() / weather.zone.nj
 
-    weather.data = weather.data[[
-        "Day",
-        "Time (HHMM)",
-        "Distance (km)",
-        "DirectSun (W/m2)",
-        "DiffuseSun (W/m2)",
-        "SunAzimuth (deg)",
-        "SunElevation (deg)",
-        "AirTemp (degC)",
-        "AirPress (Pa)",
-        "WindVel (m/s)",
-        "WindDir (deg)",
-    ]]
+    weather.data = weather.data[
+        [
+            "Day",
+            "Time (HHMM)",
+            "Distance (km)",
+            "DirectSun (W/m2)",
+            "DiffuseSun (W/m2)",
+            "SunAzimuth (deg)",
+            "SunElevation (deg)",
+            "AirTemp (degC)",
+            "AirPress (Pa)",
+            "WindVel (m/s)",
+            "WindDir (deg)",
+        ]
+    ]
 
     weather.check_rectangular()
 
@@ -351,8 +346,8 @@ def main(event, context):  # pylint: disable=unused-argument
     s3 = boto3.client("s3")
     # TODO: edit these before uploading to aws
     tz = pytz.timezone("Australia/Darwin")
-    race_start = tz.localize(datetime(2023, 8, 23))
-    race_end = tz.localize(datetime(2023, 8, 30))
+    race_start = tz.localize(datetime(2023, 8, 30))
+    race_end = tz.localize(datetime(2023, 9, 5))
     startime = race_start - timedelta(1)
     output_file = "/tmp/Weather-DEV2.dat"
 
@@ -394,7 +389,7 @@ def main(event, context):  # pylint: disable=unused-argument
         ACL="public-read",
         Bucket="duscweather",
         Key=f"weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/"
-            f"Weather-latest.dat",
+        f"Weather-latest.dat",
     )
 
 
