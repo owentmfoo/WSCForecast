@@ -1,4 +1,4 @@
-name: Deploy to ECR
+name: Deploy to ECR and Lambda
 
 on:
 
@@ -41,5 +41,5 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
     - name: Update Lambda function code
-        run: |
-          aws lambda update-function-code --function-name $ECR_REPOSITORY --image-uri $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      run: |
+        aws lambda update-function-code --function-name $ECR_REPOSITORY --image-uri $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
