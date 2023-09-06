@@ -3,13 +3,15 @@ name: Deploy to ECR and Lambda
 on:
 
   push:
-    branches: [ master , get-forecast-to-docker]
+    branches:
+      - master
+      - get-forecast-to-docker
 
   workflow_dispatch:
 
 jobs:
 
-  build:
+  deploy:
 
     name: Build Image
     runs-on: ubuntu-latest
