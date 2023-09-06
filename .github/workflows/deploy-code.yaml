@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - master
-      - get-forecast-to-docker
+      - get-forecasts-to-docker
 
   workflow_dispatch:
 
