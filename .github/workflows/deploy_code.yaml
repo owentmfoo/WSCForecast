@@ -3,7 +3,7 @@ name: Deploy to ECR and Lambda
 on:
 
   push:
-    branches: [ master ]
+    branches: [ master , get-forecast-to-docker]
 
   workflow_dispatch:
 
