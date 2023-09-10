@@ -348,23 +348,28 @@ def main(event, context):  # pylint: disable=unused-argument
     s3 = boto3.client("s3")
     # TODO: edit these before uploading to aws
     tz = pytz.timezone("Australia/Darwin")
-    race_start = tz.localize(datetime(2023, 8, 30))
-    race_end = tz.localize(datetime(2023, 9, 5))
-    startime = race_start - timedelta(1)
+    race_start = tz.localize(datetime(2023, 9, 10))
+    race_end = tz.localize(datetime(2023, 9, 15))
+    startime = race_start - timedelta(14)
     output_file = "/tmp/Weather-DEV2.dat"
 
+    filter = lambda x: True if tz.localize(
+        pd.Timestamp(x['prediction_date'])) > startime else False
     tomorrow = wr.s3.read_parquet(
         "s3://duscweather/tomorrow/",
         dataset=True,
-        last_modified_begin=startime,
-        last_modified_end=race_end,
+        partition_filter=filter
     )
     solcast = wr.s3.read_parquet(
         "s3://duscweather/solcast/",
         dataset=True,
-        last_modified_begin=startime,
-        last_modified_end=race_end,
+        partition_filter=filter
     )
+
+    tomorrow.prediction_date = pd.to_datetime(
+        tomorrow.prediction_date.astype(str))
+    solcast.prediction_date = pd.to_datetime(
+        solcast.prediction_date.astype(str))
 
     # tomorrow = pd.read_parquet("tomorrow.parquet")
     # solcast = pd.read_parquet("solcast.parquet")
