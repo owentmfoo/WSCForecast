@@ -6,7 +6,19 @@ from S5.Weather.tomorrow_forecast import send_request
 from config import tomorrow_api_keys
 from utils import get_locations, test_locations
 
-logging.getLogger().setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+handler.setFormatter(formatter)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(handler)
+
+s5_logger = logging.getLogger("S5")
+s5_logger.setLevel(logging.DEBUG)
+s5_logger.addHandler(handler)
+
 logging.info("lambda function started")
 test_locations = test_locations[:0]
 
