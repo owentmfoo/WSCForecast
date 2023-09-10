@@ -11,8 +11,7 @@ from utils import get_locations, test_locations
 
 logging.getLogger().setLevel(logging.INFO)
 logging.info("lambda function started")
-
-API_KEY = solcast_api_keys[0]
+test_locations = test_locations[:0]
 
 
 def main(event, context):  # pylint: disable=unused-argument
@@ -25,18 +24,12 @@ def main(event, context):  # pylint: disable=unused-argument
             loc_df = send_request(location[0], location[1], key, location[2])
             if loc_df.shape == (0, 0):
                 logging.error("Bad Solacast API Key %s", key)
-            try:
-                df = pd.concat([df, loc_df], axis=0)
-            except NameError:
-                df = loc_df
-        for _, location in locations.iloc[10 * i : 10 * (i + 1), :].iterrows():
-            send_request(
+            df = pd.concat([df, loc_df], axis=0)
+        for _, location in locations.iloc[10 * i: 10 * (i + 1), :].iterrows():
+            loc_df = send_request(
                 location["Latitude"], location["Longitude"], key, location["Name"]
             )
-            try:
-                df = pd.concat([df, loc_df], axis=0)
-            except NameError:
-                df = loc_df
+            df = pd.concat([df, loc_df], axis=0)
 
     wr.s3.to_parquet(
         df=df,
