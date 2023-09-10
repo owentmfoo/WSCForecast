@@ -265,17 +265,19 @@ def combine_forecast(
     #  need spatial interpolation as well
 
     # Pad to 0km and 3030km if not present
-    if 0 not in spot_forecast.loc[:, "Distance (km)"]:
+    if not (0.0 == weather.data.loc[:, "Distance (km)"]).max():
         dist = forecast.index.levels[0].unique().min()
         spot_forecast = forecast.loc[dist].interpolate()
         spot_forecast.loc[:, "Distance (km)"] = 0
-        weather.data = pd.concat([weather.data, spot_forecast.loc[race_start:race_end]])
+        weather.data = pd.concat(
+            [weather.data, spot_forecast.loc[race_start:race_end]])
 
-    if 3030 not in spot_forecast.loc[:, "Distance (km)"]:
+    if not (3030 == weather.data.loc[:, "Distance (km)"]).max():
         dist = forecast.index.levels[0].unique().max()
         spot_forecast = forecast.loc[dist].interpolate()
         spot_forecast.loc[:, "Distance (km)"] = 3030
-        weather.data = pd.concat([weather.data, spot_forecast.loc[race_start:race_end]])
+        weather.data = pd.concat(
+            [weather.data, spot_forecast.loc[race_start:race_end]])
 
     missing = weather.data.loc[weather.data.isna().sum(axis=1) > 0]
     if missing.index.shape != (0,):
