@@ -24,8 +24,21 @@ import boto3
 from pvlib import solarposition
 import pytz
 
-logging.getLogger().setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+handler.setFormatter(formatter)
 
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(handler)
+
+s5_logger = logging.getLogger("S5")
+s5_logger.setLevel(logging.DEBUG)
+s5_logger.addHandler(handler)
+
+logging.info("lambda function started")
 
 
 def extract_data(forecast_source: pd.DataFrame,
@@ -260,7 +273,9 @@ def combine_forecast(
     weather = tp.SSWeather()
     # split it up per location and interpolate to fill gaps.
     for dist in forecast.index.levels[0].unique():
-        spot_forecast = forecast.loc[dist].interpolate()
+        spot_forecast = pd.DataFrame(index=forecast.index.levels[1].unique(),
+                                     data=forecast.loc[dist])
+        spot_forecast = spot_forecast.interpolate()
         spot_forecast.loc[:, "Distance (km)"] = dist
         spot_forecast = spot_forecast.sort_index()
         weather.data = pd.concat(
@@ -272,14 +287,18 @@ def combine_forecast(
     # Pad to 0km and 3030km if not present
     if not (0.0 == weather.data.loc[:, "Distance (km)"]).max():
         dist = forecast.index.levels[0].unique().min()
-        spot_forecast = forecast.loc[dist].interpolate()
+        spot_forecast = pd.DataFrame(index=forecast.index.levels[1].unique(),
+                                     data=forecast.loc[dist])
+        spot_forecast = spot_forecast.interpolate()
         spot_forecast.loc[:, "Distance (km)"] = 0
         weather.data = pd.concat(
             [weather.data, spot_forecast.loc[race_start:race_end]])
 
     if not (3030 == weather.data.loc[:, "Distance (km)"]).max():
         dist = forecast.index.levels[0].unique().max()
-        spot_forecast = forecast.loc[dist].interpolate()
+        spot_forecast = pd.DataFrame(index=forecast.index.levels[1].unique(),
+                                     data=forecast.loc[dist])
+        spot_forecast = spot_forecast.interpolate()
         spot_forecast.loc[:, "Distance (km)"] = 3030
         weather.data = pd.concat(
             [weather.data, spot_forecast.loc[race_start:race_end]])
@@ -354,10 +373,14 @@ def main(event, context):  # pylint: disable=unused-argument
     """
     s3 = boto3.client("s3")
     # TODO: edit these before uploading to aws
+    # Solcast only do prediction up to 7 day
     tz = pytz.timezone("Australia/Darwin")
-    race_start = tz.localize(datetime(2023, 9, 10))
-    race_end = tz.localize(datetime(2023, 9, 15))
-    startime = race_start - timedelta(14)
+    # race_start = tz.localize(datetime(2023, 9, 12))
+    # race_end = tz.localize(datetime(2023, 9, 17))
+    today = datetime.combine(datetime.today().date(),datetime.min.time())
+    race_start = tz.localize(today + timedelta(1))
+    race_end = tz.localize(today + timedelta(14))
+    startime = race_start - timedelta(3)
     output_file = "/tmp/Weather-DEV2.dat"
 
     filter = lambda x: True if tz.localize(
@@ -367,6 +390,18 @@ def main(event, context):  # pylint: disable=unused-argument
         dataset=True,
         partition_filter=filter
     )
+
+    # keep the useful columns only to conserve memory
+    tomorrow = tomorrow.loc[:, ["temperature",
+                                "pressureSurfaceLevel",
+                                "windSpeed",
+                                "windDirection",
+                                "latitude",
+                                "longitude",
+                                "prediction_date",
+                                "period_end"
+                                ]]
+
     solcast = wr.s3.read_parquet(
         "s3://duscweather/solcast/",
         dataset=True,
@@ -382,7 +417,6 @@ def main(event, context):  # pylint: disable=unused-argument
     # solcast = pd.read_parquet("solcast.parquet")
     road = tp.TecplotData(r"RoadFile-LatLon-2021.dat")
     road_df = road.data
-    # TODO: pre trim a smaller selection before feeding it in?
 
     weather = combine_forecast(solcast, tomorrow, road_df, race_start, race_end)
     weather.write_tecplot(output_file)
@@ -403,7 +437,7 @@ def main(event, context):  # pylint: disable=unused-argument
         ACL="public-read",
         Bucket="duscweather",
         Key=f"weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/"
-        f"Weather-latest.dat",
+            f"Weather-latest.dat",
     )
 
 
