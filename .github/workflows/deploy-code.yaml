@@ -37,7 +37,8 @@ jobs:
 
     - name: Download Road File from S3
       run: |
-        aws s3 cp s3://duscweather/RoadFile-LatLon-2021.dat .
+        aws s3 cp s3://duscweather/WSCForecast/RoadFile-LatLon-2021.dat .
+        aws s3 cp s3://duscweather/WSCForecast/config.py .
 
     - name: Build, tag, and push image to Amazon ECR
       env:
