@@ -33,7 +33,7 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
-    -name: Download Road File from S3
+    - name: Download Road File from S3
       run: |
         aws s3 cp s3://duscweather/RoadFile-LatLon-2021.dat .
 
