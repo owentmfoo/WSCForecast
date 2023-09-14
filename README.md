@@ -18,6 +18,11 @@ The values from Solcast are period averages, so we will shift the timestamps \
 forward by half the period so the values correspond to the centre of the period. 
 
 ## Deploying to AWS Lambda
+### Automatic deployment
+Github action have been set up to automatically deploy to AWS by publishing a
+new docker image to AWS ECR and update the Lambda to use the latest image.
+
+### Manual deployment
 This section is mostly based off [this article](https://docs.aws.amazon.com/lambda/latest/dg/python-image.html#python-image-instructions).
 
 Before you run the commands:
