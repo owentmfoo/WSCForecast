@@ -21,8 +21,8 @@ jobs:
         ECR_REPOSITORY: ["get-solcast", "get-tomorrow", "combine_forecast"]
 
     env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: latest
+      ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+      IMAGE_TAG: latest
 
     steps:
 
