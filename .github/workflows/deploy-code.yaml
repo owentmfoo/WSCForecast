@@ -15,7 +15,14 @@ jobs:
 
     name: Build Image
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ECR_REPOSITORY: ["get-solcast", "get-tomorrow", "combine_forecast"]
 
+    env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: latest
 
     steps:
 
@@ -38,10 +45,7 @@ jobs:
         aws s3 cp s3://duscweather/RoadFile-LatLon-2021.dat .
 
     - name: Build, tag, and push image to Amazon ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: get-tomorrow
-        IMAGE_TAG: latest
+
       run: |
         docker build --file $(echo $ECR_REPOSITORY | sed 's/-/_/g').dockerfile --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
