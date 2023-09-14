@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ECR_REPOSITORY: ["get-solcast", "get-tomorrow", "combine_forecast"]
+        ECR_REPOSITORY: ["get-solcast", "get-tomorrow", "combine-forecast"]
 
     steps:
     - name: Check out code
