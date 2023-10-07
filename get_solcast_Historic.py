@@ -6,7 +6,7 @@ from S5.Weather.solcast_forecast import send_request
 from config import solcast_api_keys
 from utils import get_locations, test_locations
 import os
-from solcast import forecast
+from solcast import live
 
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
@@ -28,11 +28,11 @@ logging.info("lambda function started")
 def main(event, context):  # pylint: disable=unused-argument
     os.environ["SOLCAST_API_KEY"] = solcast_api_keys[0]
     # Read road file and get the locations
-    locations = get_locations(300)
+    locations = get_locations(1200)
     # locations = test_locations
     df = None
     for location in locations:
-        res = forecast.radiation_and_weather(
+        res = live.radiation_and_weather(
             latitude=location[0],
             longitude=location[1],
             output_parameters=["dni", "dni10", "dni90",
