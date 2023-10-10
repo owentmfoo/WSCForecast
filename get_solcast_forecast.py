@@ -1,5 +1,7 @@
 """Get forecast from solcast and stores it on S3"""
 import logging
+import warnings
+
 import awswrangler as wr
 import pandas as pd
 from S5.Weather.solcast_forecast import send_request
@@ -9,6 +11,7 @@ import os
 from solcast import forecast
 import numpy as np
 import datetime
+import tqdm
 
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
@@ -25,7 +28,7 @@ s5_logger.setLevel(logging.DEBUG)
 s5_logger.addHandler(handler)
 
 logging.info("lambda function started")
-
+warnings.filterwarnings("ignore",category=DeprecationWarning)
 
 def main(event, context):  # pylint: disable=unused-argument
     os.environ["SOLCAST_API_KEY"] = solcast_api_keys[0]
@@ -34,46 +37,47 @@ def main(event, context):  # pylint: disable=unused-argument
     # locations = test_locations
     df = None
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
-    for location in locations:
+    period = 'PT5M'
+    for _,location in tqdm.tqdm(locations.iterrows(),total=locations.shape[0]):
         res = forecast.radiation_and_weather(
-            latitude=location[0],
-            longitude=location[1],
+            latitude=location["Latitude"],
+            longitude=location["Longitude"],
             output_parameters=["dni", "dni10", "dni90",
                                "dhi", "dhi10", "dhi90",
-                               "temperature",
+                               "air_temp",
                                "surface_pressure",
                                "wind_speed_10m",
-                               "windDirection",
+                               "wind_direction_10m",
                                "azimuth","zenith"],
-            period='PT5M',
+            period=period,
             hours=336
         )
         try:
             loc_df = res.to_pandas()
-            loc_df.rename({"surface_pressure": "pressureSurfaceLevel",
+            loc_df = loc_df.rename(columns={"surface_pressure": "pressureSurfaceLevel",
                            "wind_speed_10m": "windSpeed",
-                           "wind_direction_10m": "windDirection"})
-            df.loc[:, "period_end"] = df.loc[:, "period_end"].astype(
-                np.datetime64)
-            df.loc[:, "period"] = df.loc[:, "period"].astype(
+                           "wind_direction_10m": "windDirection",
+                           })
+            loc_df.reset_index(inplace=True)
+            loc_df.loc[:, "period"] = period
+            loc_df.loc[:, "period"] = loc_df.loc[:, "period"].astype(
                 pd.CategoricalDtype())
-            df["latitude"] = location[0]
-            df["longitude"] = location[1]
-            df["location_name"] = location[2]
-            df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
+            loc_df["latitude"] = location["Latitude"]
+            loc_df["longitude"] = location["Longitude"]
+            loc_df["location_name"] = location["Name"]
+            loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
             df = pd.concat([df, loc_df], axis=0)
         except Exception as e:
             logging.exception(e)
-    #
-    # TODO: Check df content, time period, dtypes and columns.
-    # wr.s3.to_parquet(
-    #     df=df,
-    #     path="s3://duscweather/solcast/",
-    #     dataset=True,
-    #     mode="append",
-    #     filename_prefix="solcast_",
-    #     partition_cols=["prediction_date"],
-    # )
+
+    wr.s3.to_parquet(
+        df=df,
+        path="s3://duscweather/solcast_SDK/",
+        dataset=True,
+        mode="append",
+        filename_prefix="solcast_",
+        partition_cols=["prediction_date"],
+    )
 
 
 if __name__ == '__main__':
