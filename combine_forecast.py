@@ -41,8 +41,6 @@ s5_logger = logging.getLogger("S5")
 s5_logger.setLevel(logging.DEBUG)
 s5_logger.addHandler(handler)
 
-logging.info("lambda function started")
-
 
 def extract_data(
         forecast_source: pd.DataFrame, road: pd.DataFrame
@@ -190,7 +188,7 @@ def combine_forecast(
         columns={
             "dni": "DirectSun (W/m2)",
             "dhi": "DiffuseSun (W/m2)",
-            "temperature": "AirTemp (degC)",
+            "air_temp": "AirTemp (degC)",
             "pressureSurfaceLevel": "AirPress (hPa)",
             "windSpeed": "10m WindVel (m/s)",
             "windDirection": "WindDir (deg)",
@@ -200,6 +198,10 @@ def combine_forecast(
         },
         inplace=True,
     )
+    solcast.loc[:, "WindVel (m/s)"] = convert_wind(
+        solcast.loc[:, "10m WindVel (m/s)"]
+    )
+    solcast.loc[:, "AirPress (Pa)"] = solcast.loc[:, "AirPress (hPa)"] * 100
 
     solcast = extract_data(
         solcast.loc[
@@ -211,6 +213,10 @@ def combine_forecast(
             "Latitude",
             "period_end",
             "prediction_date",
+            "AirTemp (degC)",
+            "AirPress (Pa)",
+            "WindVel (m/s)",
+            "WindDir (deg)"
         ],
         ],
         road,
@@ -246,11 +252,12 @@ def combine_forecast(
     tomorrow_prediction_time = tomorrow.prediction_date.max()
     tomorrow.drop(columns=["prediction_date"], inplace=True)
 
-    forecast = pd.merge(
-        tomorrow.loc[
+    forecast = solcast.loc[
         :,
         [
             "Distance (km)",
+            "DirectSun (W/m2)",
+            "DiffuseSun (W/m2)",
             "AirPress (Pa)",
             "AirTemp (degC)",
             "WindDir (deg)",
@@ -258,18 +265,7 @@ def combine_forecast(
             "Latitude",
             "Longitude",
         ],
-        ],
-        solcast.loc[
-        :,
-        [
-            "Distance (km)",
-            "DirectSun (W/m2)",
-            "DiffuseSun (W/m2)",
-        ],
-        ].astype(np.float64),
-        how="outer",
-        on=["period_end", "Distance (km)"],
-    )
+        ].astype(np.float64)
     forecast = (
         forecast.reset_index()
             .set_index(["Distance (km)", "period_end"])
@@ -277,7 +273,7 @@ def combine_forecast(
     )
 
     # TODO: insert the sunrise and sunset row before interpolate
-    locations = get_locations(300)
+    locations = get_locations(320)
     weather = tp.SSWeather()
     weather.data = pd.DataFrame(index=pd.MultiIndex.from_product([locations["Distance (km)"],pd.date_range(race_start, race_end, freq='15min')],names=["Distance (km)","period_end"]))
     # split it up per location and interpolate to fill gaps.
@@ -313,13 +309,15 @@ def combine_forecast(
 
     for param_name in ["DirectSun (W/m2)", "DiffuseSun (W/m2)"]:
         out = interp(param_name,solcast)
+        logging.info("Interperting %s", param_name)
         weather.data = weather.data.merge(out, on=["Distance (km)", "period_end"])
     for param_name in ["AirPress (Pa)",
             "AirTemp (degC)",
             "WindDir (deg)",
             "WindVel (m/s)",
                        ]:
-        out = interp(param_name, tomorrow)
+        out = interp(param_name, solcast)
+        logging.info("Interperting %s", param_name)
         weather.data = weather.data.merge(out, on=["Distance (km)", "period_end"])
 
 
@@ -413,6 +411,7 @@ def main(event, context):  # pylint: disable=unused-argument
     Returns:
         None
     """
+    logging.info("lambda function started")
     s3 = boto3.client("s3")
     # TODO: edit these before uploading to aws
     # Solcast only do prediction up to 7 day
@@ -468,8 +467,9 @@ def main(event, context):  # pylint: disable=unused-argument
     road_df = road.data
 
     weather = combine_forecast(solcast, tomorrow, road_df, race_start, race_end)
+    logging.info("Writing tecplot...")
     weather.write_tecplot(output_file)
-
+    logging.info("Uploading tecplot...")
     #  write to S3 and overwrite the latest
     wr.s3.upload(
         output_file,
@@ -488,6 +488,7 @@ def main(event, context):  # pylint: disable=unused-argument
         Key=f"weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/"
             f"Weather-latest.dat",
     )
+    logging.info("lambda function finished")
 
 
 if __name__ == "__main__":
