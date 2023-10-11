@@ -12,6 +12,7 @@ from solcast import forecast
 import numpy as np
 import datetime
 import tqdm
+import dask
 
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
@@ -35,49 +36,57 @@ def main(event, context):  # pylint: disable=unused-argument
     # Read road file and get the locations
     locations = get_locations(300)
     # locations = test_locations
-    df = None
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
     period = 'PT5M'
-    for _,location in tqdm.tqdm(locations.iterrows(),total=locations.shape[0]):
-        res = forecast.radiation_and_weather(
-            latitude=location["Latitude"],
-            longitude=location["Longitude"],
-            output_parameters=["dni", "dni10", "dni90",
-                               "dhi", "dhi10", "dhi90",
-                               "air_temp",
-                               "surface_pressure",
-                               "wind_speed_10m",
-                               "wind_direction_10m",
-                               "azimuth","zenith"],
-            period=period,
-            hours=336
-        )
-        try:
-            loc_df = res.to_pandas()
-            loc_df = loc_df.rename(columns={"surface_pressure": "pressureSurfaceLevel",
-                           "wind_speed_10m": "windSpeed",
-                           "wind_direction_10m": "windDirection",
-                           })
-            loc_df.reset_index(inplace=True)
-            loc_df.loc[:, "period"] = period
-            loc_df.loc[:, "period"] = loc_df.loc[:, "period"].astype(
-                pd.CategoricalDtype())
-            loc_df["latitude"] = location["Latitude"]
-            loc_df["longitude"] = location["Longitude"]
-            loc_df["location_name"] = location["Name"]
-            loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
-            df = pd.concat([df, loc_df], axis=0)
-        except Exception as e:
-            logging.exception(e)
+    df = []
+    for _,location in locations.iterrows():
+        loc_df = dask.delayed(get_spot_forecast)(location, period, timestamp)
+        df.append(loc_df)
 
+    df = dask.compute(*df)
+    print(df)
+    df2 = pd.concat(df)
     wr.s3.to_parquet(
-        df=df,
+        df=df2,
         path="s3://duscweather/solcast_SDK/",
         dataset=True,
         mode="append",
         filename_prefix="solcast_",
         partition_cols=["prediction_date"],
     )
+
+
+def get_spot_forecast(location, period, timestamp):
+    res = forecast.radiation_and_weather(
+        latitude=location["Latitude"],
+        longitude=location["Longitude"],
+        output_parameters=["dni", "dni10", "dni90",
+                           "dhi", "dhi10", "dhi90",
+                           "air_temp",
+                           "surface_pressure",
+                           "wind_speed_10m",
+                           "wind_direction_10m",
+                           "azimuth", "zenith"],
+        period=period,
+        hours=336
+    )
+    try:
+        loc_df = res.to_pandas()
+        loc_df = loc_df.rename(columns={"surface_pressure": "pressureSurfaceLevel",
+                                        "wind_speed_10m": "windSpeed",
+                                        "wind_direction_10m": "windDirection",
+                                        })
+        loc_df.reset_index(inplace=True)
+        loc_df.loc[:, "period"] = period
+        loc_df.loc[:, "period"] = loc_df.loc[:, "period"].astype(
+            pd.CategoricalDtype())
+        loc_df["latitude"] = location["Latitude"]
+        loc_df["longitude"] = location["Longitude"]
+        loc_df["location_name"] = location["Name"]
+        loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
+    except Exception as e:
+        logging.exception(e)
+    return loc_df
 
 
 if __name__ == '__main__':
