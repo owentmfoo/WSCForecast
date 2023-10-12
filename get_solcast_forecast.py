@@ -1,5 +1,6 @@
 """Get forecast from solcast and stores it on S3"""
 import logging
+import time
 import warnings
 
 import awswrangler as wr
@@ -34,7 +35,7 @@ warnings.filterwarnings("ignore",category=DeprecationWarning)
 def main(event, context):  # pylint: disable=unused-argument
     os.environ["SOLCAST_API_KEY"] = solcast_api_keys[0]
     # Read road file and get the locations
-    locations = get_locations(300)
+    locations = get_locations(1500)
     # locations = test_locations
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
     period = 'PT5M'
@@ -44,7 +45,6 @@ def main(event, context):  # pylint: disable=unused-argument
         df.append(loc_df)
 
     df = dask.compute(*df)
-    print(df)
     df2 = pd.concat(df)
     wr.s3.to_parquet(
         df=df2,
@@ -57,36 +57,39 @@ def main(event, context):  # pylint: disable=unused-argument
 
 
 def get_spot_forecast(location, period, timestamp):
-    res = forecast.radiation_and_weather(
-        latitude=location["Latitude"],
-        longitude=location["Longitude"],
-        output_parameters=["dni", "dni10", "dni90",
-                           "dhi", "dhi10", "dhi90",
-                           "air_temp",
-                           "surface_pressure",
-                           "wind_speed_10m",
-                           "wind_direction_10m",
-                           "azimuth", "zenith"],
-        period=period,
-        hours=336
-    )
-    try:
-        loc_df = res.to_pandas()
-        loc_df = loc_df.rename(columns={"surface_pressure": "pressureSurfaceLevel",
-                                        "wind_speed_10m": "windSpeed",
-                                        "wind_direction_10m": "windDirection",
-                                        })
-        loc_df.reset_index(inplace=True)
-        loc_df.loc[:, "period"] = period
-        loc_df.loc[:, "period"] = loc_df.loc[:, "period"].astype(
-            pd.CategoricalDtype())
-        loc_df["latitude"] = location["Latitude"]
-        loc_df["longitude"] = location["Longitude"]
-        loc_df["location_name"] = location["Name"]
-        loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
-    except Exception as e:
-        logging.exception(e)
-    return loc_df
+    for i in range(3):
+        res = forecast.radiation_and_weather(
+            latitude=location["Latitude"],
+            longitude=location["Longitude"],
+            output_parameters=["dni", "dni10", "dni90",
+                               "dhi", "dhi10", "dhi90",
+                               "air_temp",
+                               "surface_pressure",
+                               "wind_speed_10m",
+                               "wind_direction_10m",
+                               "azimuth", "zenith"],
+            period=period,
+            hours=336
+        )
+        if res.code == 200:
+            logging.debug("successful request for %s", ["Name"])
+            loc_df = res.to_pandas()
+            loc_df = loc_df.rename(columns={"surface_pressure": "pressureSurfaceLevel",
+                                            "wind_speed_10m": "windSpeed",
+                                            "wind_direction_10m": "windDirection",
+                                            })
+            loc_df.reset_index(inplace=True)
+            loc_df.loc[:, "period"] = period
+            loc_df.loc[:, "period"] = loc_df.loc[:, "period"].astype(
+                pd.CategoricalDtype())
+            loc_df["latitude"] = location["Latitude"]
+            loc_df["longitude"] = location["Longitude"]
+            loc_df["location_name"] = location["Name"]
+            loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
+            return loc_df
+        elif res.code == 429:
+            logging.info("rate limited for request %s, %d retry remaining, retrying in %d seconds", location["Name"],12-i,int(res.exception[-11:-8])+1)
+            time.sleep(int(res.exception[-10:-8])+1)
 
 
 if __name__ == '__main__':
