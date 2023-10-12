@@ -216,7 +216,9 @@ def combine_forecast(
             "AirTemp (degC)",
             "AirPress (Pa)",
             "WindVel (m/s)",
-            "WindDir (deg)"
+            "WindDir (deg)",
+            "dni10", "dni90",
+            "dhi10", "dhi90"
         ],
         ],
         road,
@@ -253,19 +255,19 @@ def combine_forecast(
     tomorrow.drop(columns=["prediction_date"], inplace=True)
 
     forecast = solcast.loc[
-        :,
-        [
-            "Distance (km)",
-            "DirectSun (W/m2)",
-            "DiffuseSun (W/m2)",
-            "AirPress (Pa)",
-            "AirTemp (degC)",
-            "WindDir (deg)",
-            "WindVel (m/s)",
-            "Latitude",
-            "Longitude",
-        ],
-        ].astype(np.float64)
+               :,
+               [
+                   "Distance (km)",
+                   "DirectSun (W/m2)",
+                   "DiffuseSun (W/m2)",
+                   "AirPress (Pa)",
+                   "AirTemp (degC)",
+                   "WindDir (deg)",
+                   "WindVel (m/s)",
+                   "Latitude",
+                   "Longitude",
+               ],
+               ].astype(np.float64)
     forecast = (
         forecast.reset_index()
             .set_index(["Distance (km)", "period_end"])
@@ -275,71 +277,76 @@ def combine_forecast(
     # TODO: insert the sunrise and sunset row before interpolate
     locations = get_locations(320)
     weather = tp.SSWeather()
-    weather.data = pd.DataFrame(index=pd.MultiIndex.from_product([locations["Distance (km)"],pd.date_range(race_start, race_end, freq='15min')],names=["Distance (km)","period_end"]))
-    # split it up per location and interpolate to fill gaps.
-    # for dist in forecast.index.levels[0].unique():
-    #     spot_forecast = pd.DataFrame(
-    #         index=forecast.index.levels[1].unique(), data=forecast.loc[dist]
-    #     )
-    #     spot_forecast = spot_forecast.interpolate()
-    #     spot_forecast.loc[:, "Distance (km)"] = dist
-    #     spot_forecast = spot_forecast.sort_index()
-    #     weather.data = pd.concat(
-    #         [weather.data, spot_forecast.loc[race_start:race_end]]
-    #     )
+    weather.data = pd.DataFrame(index=pd.MultiIndex.from_product(
+        [locations["Distance (km)"],
+         pd.date_range(race_start, race_end, freq='15min')],
+        names=["Distance (km)", "period_end"]))
+
+    solcast["WindDirX"] = np.sin(solcast["WindDir (deg)"] / 180 * np.pi)
+    solcast["WindDirY"] = np.cos(solcast["WindDir (deg)"] / 180 * np.pi)
+    # interpolate to the desired resolution
     frame = pd.DataFrame(
         index=pd.date_range(race_start, race_end, freq='15min'),
         columns=locations["Distance (km)"]
     )
-    def interp(param_name,df):
+
+    def interp(param_name, df):
         parameter = df.pivot(columns="Distance (km)",
-                                  values=param_name)
+                             values=param_name)
 
         frame.index.name = "period_end"
         parameter.dropna(inplace=True)
         parameter_interp = interpolate.interp2d(parameter.columns,
-                                                parameter.index.astype(int),
+                                                parameter.index.astype(np.int64),
                                                 parameter.to_numpy())
         frame.loc[:, :] = parameter_interp(frame.columns.to_numpy(),
-                                           frame.index.astype(int).to_numpy(),
+                                           frame.index.astype(np.int64).to_numpy(),
                                            )
-        return frame.melt(ignore_index=False,value_name = param_name).reset_index()\
-            .set_index(["Distance (km)", "period_end"])\
-        .sort_values(by=["Distance (km)", "period_end"])
+        return frame.melt(ignore_index=False,
+                          value_name=param_name).reset_index() \
+            .set_index(["Distance (km)", "period_end"]) \
+            .sort_values(by=["Distance (km)", "period_end"])
 
-    for param_name in ["DirectSun (W/m2)", "DiffuseSun (W/m2)"]:
-        out = interp(param_name,solcast)
-        logging.info("Interperting %s", param_name)
-        weather.data = weather.data.merge(out, on=["Distance (km)", "period_end"])
-    for param_name in ["AirPress (Pa)",
-            "AirTemp (degC)",
-            "WindDir (deg)",
-            "WindVel (m/s)",
-                       ]:
+    for param_name in ['DirectSun (W/m2)',
+                       'DiffuseSun (W/m2)',
+                       'AirTemp (degC)',
+                       'AirPress (Pa)',
+                       'WindVel (m/s)',
+                       'dni10', 'dni90',
+                       'dhi10', 'dhi90',
+                       'WindDirX',
+                       'WindDirY']:
+        logging.debug("Interperting %s", param_name)
         out = interp(param_name, solcast)
-        logging.info("Interperting %s", param_name)
-        weather.data = weather.data.merge(out, on=["Distance (km)", "period_end"])
+        weather.data = weather.data.merge(out,
+                                          on=["Distance (km)", "period_end"])
 
 
     # Pad to 0km and 3030km if not present
     if not (0.0 == weather.data.index.levels[0]).max():
-        spot_forecast = weather.data.loc[forecast.index.levels[0].unique().min()]
+        spot_forecast = weather.data.loc[
+            forecast.index.levels[0].unique().min()]
         spot_forecast.loc[:, "Distance (km)"] = 0.0
         spot_forecast = spot_forecast.reset_index() \
             .set_index(["Distance (km)", "period_end"])
-        weather.data = pd.concat([weather.data,spot_forecast])
+        weather.data = pd.concat([weather.data, spot_forecast])
 
     if not (3030.0 == weather.data.index.levels[0]).max():
-        spot_forecast = weather.data.loc[forecast.index.levels[0].unique().max()]
+        spot_forecast = weather.data.loc[
+            forecast.index.levels[0].unique().max()]
         spot_forecast.loc[:, "Distance (km)"] = 3030.0
         spot_forecast = spot_forecast.reset_index() \
             .set_index(["Distance (km)", "period_end"])
-        weather.data = pd.concat([weather.data,spot_forecast])
+        weather.data = pd.concat([weather.data, spot_forecast])
 
     weather.data = weather.data.reset_index()
+    weather.data["WindDir (deg)"] = np.mod(
+        np.arctan2(weather.data['WindDirX'].astype(np.float64),
+                   weather.data['WindDirY'].astype(np.float64)) / np.pi * 180,
+        360)
     weather.data = weather.data.merge(locations[["Distance (km)", "Latitude",
-                                           "Longitude"]],
-                       on=["Distance (km)"])
+                                                 "Longitude"]],
+                                      on=["Distance (km)"])
     weather.data = weather.data.set_index("period_end")
     missing = weather.data.loc[weather.data.isna().sum(axis=1) > 0]
     if missing.index.shape != (0,):
@@ -384,6 +391,10 @@ def combine_forecast(
             "AirPress (Pa)",
             "WindVel (m/s)",
             "WindDir (deg)",
+            'dni10', 'dni90',
+            'dhi10', 'dhi90',
+            'Latitude',
+            'Longitude'
         ]
     ]
 
