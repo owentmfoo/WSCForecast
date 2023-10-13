@@ -20,7 +20,7 @@ formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(messag
 handler.setFormatter(formatter)
 
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
+root_logger.setLevel(logging.DEBUG)
 root_logger.addHandler(handler)
 
 s5_logger = logging.getLogger("S5")
@@ -82,7 +82,7 @@ def get_spot_forecast(location, period, timestamp):
             hours=336,
         )
         if res.code == 200:
-            logging.debug("successful request for %s", ["Name"])
+            logging.debug("successful request for %s", location["Name"])
             loc_df = res.to_pandas()
             loc_df = loc_df.rename(
                 columns={

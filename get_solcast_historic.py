@@ -73,7 +73,7 @@ def get_spot_live(location, period, timestamp):
             hours=168,
         )
         if res.code == 200:
-            logging.debug("successful request for %s", ["Name"])
+            logging.debug("successful request for %s", location["Name"])
             loc_df = res.to_pandas()
             loc_df = loc_df.rename(
                 columns={
