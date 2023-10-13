@@ -4,3 +4,5 @@ numpy~=1.24.4
 boto3~=1.26.126
 s5 @ git+https://github.com/owentmfoo/S5
 pvlib~=0.9.0
+solcast~=1.0.2
+dask[complete]~=2023.4.1

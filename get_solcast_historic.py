@@ -1,22 +1,21 @@
 """Get forecast from solcast and stores it on S3"""
 import logging
 import time
-import warnings
 
 import awswrangler as wr
+import dask
 import pandas as pd
 from config import solcast_api_keys
 from utils import get_locations
 import os
-from solcast import forecast
+from solcast import live
 import numpy as np
 import datetime
-import dask
-from get_solcast_historic import get_spot_live
 
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(name)s - %(message)s")
 handler.setFormatter(formatter)
 
 root_logger = logging.getLogger()
@@ -28,7 +27,6 @@ s5_logger.setLevel(logging.DEBUG)
 s5_logger.addHandler(handler)
 
 logging.info("lambda function started")
-warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def main(event, context):  # pylint: disable=unused-argument
@@ -40,10 +38,8 @@ def main(event, context):  # pylint: disable=unused-argument
     period = "PT5M"
     df = []
     for _, location in locations.iterrows():
-        forecast_df = dask.delayed(get_spot_forecast)(location, period, timestamp)
-        df.append(forecast_df)
-        historic_df = dask.delayed(get_spot_live)(location, period, timestamp)
-        df.append(historic_df)
+        loc_df = dask.delayed(get_spot_live)(location, period, timestamp)
+        df.append(loc_df)
 
     df = dask.compute(*df)
     df2 = pd.concat(df)
@@ -57,20 +53,15 @@ def main(event, context):  # pylint: disable=unused-argument
         partition_cols=["prediction_date"],
     )
 
-
-def get_spot_forecast(location, period, timestamp):
+def get_spot_live(location, period, timestamp):
     retries = 3
     for i in range(retries):
-        res = forecast.radiation_and_weather(
+        res = live.radiation_and_weather(
             latitude=location["Latitude"],
             longitude=location["Longitude"],
             output_parameters=[
                 "dni",
-                "dni10",
-                "dni90",
                 "dhi",
-                "dhi10",
-                "dhi90",
                 "air_temp",
                 "surface_pressure",
                 "wind_speed_10m",
@@ -79,7 +70,7 @@ def get_spot_forecast(location, period, timestamp):
                 "zenith",
             ],
             period=period,
-            hours=336,
+            hours=168,
         )
         if res.code == 200:
             logging.debug("successful request for %s", ["Name"])
@@ -99,7 +90,8 @@ def get_spot_forecast(location, period, timestamp):
             loc_df["latitude"] = location["Latitude"]
             loc_df["longitude"] = location["Longitude"]
             loc_df["location_name"] = location["Name"]
-            loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
+            loc_df["prediction_date"] = np.datetime64(
+                pd.Timestamp(timestamp))
             return loc_df
         elif res.code == 429:
             logging.info(
@@ -113,6 +105,7 @@ def get_spot_forecast(location, period, timestamp):
     logging.error("Unable to get forecast for %s, error %s",
                   location["Name"],
                   res.exception)
+
 
 if __name__ == "__main__":
     main(0, 0)

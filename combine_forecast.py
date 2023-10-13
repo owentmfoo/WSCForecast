@@ -23,12 +23,12 @@ import numpy as np
 import boto3
 from pvlib import solarposition
 import pytz
+from scipy import interpolate
+from utils import get_locations
 
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter(
-    "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
 handler.setFormatter(formatter)
 
 root_logger = logging.getLogger()
@@ -39,12 +39,8 @@ s5_logger = logging.getLogger("S5")
 s5_logger.setLevel(logging.DEBUG)
 s5_logger.addHandler(handler)
 
-logging.info("lambda function started")
 
-
-def extract_data(
-    forecast_source: pd.DataFrame, road: pd.DataFrame
-) -> pd.DataFrame:
+def extract_data(forecast_source: pd.DataFrame, road: pd.DataFrame) -> pd.DataFrame:
     """Maps forecast locations to distance along the route and keep the latest
     forecast.
 
@@ -64,9 +60,7 @@ def extract_data(
         KeyError:If columns are missing from the input DataFrames.
 
     """
-    if ("Distance (km)" not in road.columns) and (
-        road.index.name != "Distance (km)"
-    ):
+    if ("Distance (km)" not in road.columns) and (road.index.name != "Distance (km)"):
         raise KeyError("road missing Distance (km)")
     if road.index.name != "Distance (km)":
         road.set_index("Distance (km)", inplace=True)
@@ -133,9 +127,7 @@ def calc_sunpos(df: pd.DataFrame) -> pd.DataFrame:
     """
     if not isinstance(df.index, pd.DatetimeIndex):
         raise AttributeError("DataFrame index must DateTimeIndex.")
-    sun_pos = solarposition.get_solarposition(
-        df.index, df.Latitude, df.Longitude
-    )
+    sun_pos = solarposition.get_solarposition(df.index, df.Latitude, df.Longitude)
     sun_pos.loc[:, "azimuth"] = sun_pos["azimuth"].apply(
         lambda x: x if x < 180 else x - 360
     )
@@ -188,7 +180,7 @@ def combine_forecast(
         columns={
             "dni": "DirectSun (W/m2)",
             "dhi": "DiffuseSun (W/m2)",
-            "temperature": "AirTemp (degC)",
+            "air_temp": "AirTemp (degC)",
             "pressureSurfaceLevel": "AirPress (hPa)",
             "windSpeed": "10m WindVel (m/s)",
             "windDirection": "WindDir (deg)",
@@ -198,6 +190,8 @@ def combine_forecast(
         },
         inplace=True,
     )
+    solcast.loc[:, "WindVel (m/s)"] = convert_wind(solcast.loc[:, "10m WindVel (m/s)"])
+    solcast.loc[:, "AirPress (Pa)"] = solcast.loc[:, "AirPress (hPa)"] * 100
 
     solcast = extract_data(
         solcast.loc[
@@ -209,15 +203,25 @@ def combine_forecast(
                 "Latitude",
                 "period_end",
                 "prediction_date",
+                "AirTemp (degC)",
+                "AirPress (Pa)",
+                "WindVel (m/s)",
+                "WindDir (deg)",
+                "dni10",
+                "dni90",
+                "dhi10",
+                "dhi90",
             ],
         ],
         road,
     )
-    solcast.index = solcast.index.tz_localize("UTC")
+    if solcast.index.tz is None:
+        solcast.index = solcast.index.tz_localize("UTC")
 
-    # shift the solcast timestamps forward bu 15 min so the values corresponds
+    # shift the solcast timestamps forward by 2.5 min so the values corresponds
     #  the centre of the period.
-    solcast = solcast.shift(-15, "min")
+    # TODO: check period and adjust accordingly
+    solcast = solcast.shift(-2.5, "min")
 
     tomorrow = extract_data(
         tomorrow.loc[
@@ -242,30 +246,20 @@ def combine_forecast(
     tomorrow_prediction_time = tomorrow.prediction_date.max()
     tomorrow.drop(columns=["prediction_date"], inplace=True)
 
-    forecast = pd.merge(
-        tomorrow.loc[
-            :,
-            [
-                "Distance (km)",
-                "AirPress (Pa)",
-                "AirTemp (degC)",
-                "WindDir (deg)",
-                "WindVel (m/s)",
-                "Latitude",
-                "Longitude",
-            ],
+    forecast = solcast.loc[
+        :,
+        [
+            "Distance (km)",
+            "DirectSun (W/m2)",
+            "DiffuseSun (W/m2)",
+            "AirPress (Pa)",
+            "AirTemp (degC)",
+            "WindDir (deg)",
+            "WindVel (m/s)",
+            "Latitude",
+            "Longitude",
         ],
-        solcast.loc[
-            :,
-            [
-                "Distance (km)",
-                "DirectSun (W/m2)",
-                "DiffuseSun (W/m2)",
-            ],
-        ].astype(np.float64),
-        how="outer",
-        on=["period_end", "Distance (km)"],
-    )
+    ].astype(np.float64)
     forecast = (
         forecast.reset_index()
         .set_index(["Distance (km)", "period_end"])
@@ -273,46 +267,98 @@ def combine_forecast(
     )
 
     # TODO: insert the sunrise and sunset row before interpolate
-
+    locations = get_locations(300)
     weather = tp.SSWeather()
-    # split it up per location and interpolate to fill gaps.
-    for dist in forecast.index.levels[0].unique():
-        spot_forecast = pd.DataFrame(
-            index=forecast.index.levels[1].unique(), data=forecast.loc[dist]
+    weather.data = pd.DataFrame(
+        index=pd.MultiIndex.from_product(
+            [
+                locations["Distance (km)"],
+                pd.date_range(race_start, race_end, freq="15min"),
+            ],
+            names=["Distance (km)", "period_end"],
         )
-        spot_forecast = spot_forecast.interpolate()
-        spot_forecast.loc[:, "Distance (km)"] = dist
-        spot_forecast = spot_forecast.sort_index()
-        weather.data = pd.concat(
-            [weather.data, spot_forecast.loc[race_start:race_end]]
+    )
+
+    solcast["WindDirX"] = np.sin(solcast["WindDir (deg)"] / 180 * np.pi)
+    solcast["WindDirY"] = np.cos(solcast["WindDir (deg)"] / 180 * np.pi)
+
+    # do not extrapolate into the future if there is no forecast for it.
+    race_end = min(forecast.index.levels[1].max().to_pydatetime(), race_end)
+    race_end = race_end.astimezone(race_start.tzinfo)
+
+    # interpolate to the desired resolution
+    frame = pd.DataFrame(
+        index=pd.date_range(race_start, race_end, freq="15min"),
+        columns=locations["Distance (km)"],
+    )
+
+    def interp(param_name, df):
+        parameter = df.pivot(columns="Distance (km)", values=param_name)
+
+        frame.index.name = "period_end"
+        parameter.dropna(inplace=True)
+        parameter_interp = interpolate.interp2d(
+            parameter.columns, parameter.index.astype(np.int64), parameter.to_numpy()
+        )
+        frame.loc[:, :] = parameter_interp(
+            frame.columns.to_numpy(),
+            frame.index.astype(np.int64).to_numpy(),
+        )
+        return (
+            frame.melt(ignore_index=False, value_name=param_name)
+            .reset_index()
+            .set_index(["Distance (km)", "period_end"])
+            .sort_values(by=["Distance (km)", "period_end"])
         )
 
-    # TODO: what if there are more spots from tomorrow than from solcast?
-    #  need spatial interpolation as well
+    for param_name in [
+        "DirectSun (W/m2)",
+        "DiffuseSun (W/m2)",
+        "AirTemp (degC)",
+        "AirPress (Pa)",
+        "WindVel (m/s)",
+        "dni10",
+        "dni90",
+        "dhi10",
+        "dhi90",
+        "WindDirX",
+        "WindDirY",
+    ]:
+        logging.debug("Interperting %s", param_name)
+        out = interp(param_name, solcast)
+        weather.data = weather.data.merge(out, on=["Distance (km)", "period_end"])
 
     # Pad to 0km and 3030km if not present
-    if not (0.0 == weather.data.loc[:, "Distance (km)"]).max():
-        dist = forecast.index.levels[0].unique().min()
-        spot_forecast = pd.DataFrame(
-            index=forecast.index.levels[1].unique(), data=forecast.loc[dist]
+    if not (0.0 == weather.data.index.levels[0]).max():
+        spot_forecast = weather.data.loc[forecast.index.levels[0].unique().min()]
+        spot_forecast.loc[:, "Distance (km)"] = 0.0
+        spot_forecast = spot_forecast.reset_index().set_index(
+            ["Distance (km)", "period_end"]
         )
-        spot_forecast = spot_forecast.interpolate()
-        spot_forecast.loc[:, "Distance (km)"] = 0
-        weather.data = pd.concat(
-            [weather.data, spot_forecast.loc[race_start:race_end]]
-        )
+        weather.data = pd.concat([weather.data, spot_forecast])
 
-    if not (3030 == weather.data.loc[:, "Distance (km)"]).max():
-        dist = forecast.index.levels[0].unique().max()
-        spot_forecast = pd.DataFrame(
-            index=forecast.index.levels[1].unique(), data=forecast.loc[dist]
+    if not (3030.0 == weather.data.index.levels[0]).max():
+        spot_forecast = weather.data.loc[forecast.index.levels[0].unique().max()]
+        spot_forecast.loc[:, "Distance (km)"] = 3030.0
+        spot_forecast = spot_forecast.reset_index().set_index(
+            ["Distance (km)", "period_end"]
         )
-        spot_forecast = spot_forecast.interpolate()
-        spot_forecast.loc[:, "Distance (km)"] = 3030
-        weather.data = pd.concat(
-            [weather.data, spot_forecast.loc[race_start:race_end]]
-        )
+        weather.data = pd.concat([weather.data, spot_forecast])
 
+    weather.data = weather.data.reset_index()
+    weather.data["WindDir (deg)"] = np.mod(
+        np.arctan2(
+            weather.data["WindDirX"].astype(np.float64),
+            weather.data["WindDirY"].astype(np.float64),
+        )
+        / np.pi
+        * 180,
+        360,
+    )
+    weather.data = weather.data.merge(
+        locations[["Distance (km)", "Latitude", "Longitude"]], on=["Distance (km)"]
+    )
+    weather.data = weather.data.set_index("period_end")
     missing = weather.data.loc[weather.data.isna().sum(axis=1) > 0]
     if missing.index.shape != (0,):
         # TODO: determin what to do when there is missing data.
@@ -322,9 +368,7 @@ def combine_forecast(
             missing.isna().sum().sum(),
         )
         for i, row in missing.iterrows():
-            logging.debug(
-                "Missing data at %s %s", i, row.index[row.isna()].to_list()
-            )
+            logging.debug("Missing data at %s %s", i, row.index[row.isna()].to_list())
 
     weather.data = calc_sunpos(weather.data)
 
@@ -343,21 +387,25 @@ def combine_forecast(
     weather.zone.nj = weather.data.loc[:, "Distance (km)"].nunique()
     weather.zone.ni = weather.data.iloc[:, 0].count() / weather.zone.nj
 
-    weather.data = weather.data[
-        [
-            "Day",
-            "Time (HHMM)",
-            "Distance (km)",
-            "DirectSun (W/m2)",
-            "DiffuseSun (W/m2)",
-            "SunAzimuth (deg)",
-            "SunElevation (deg)",
-            "AirTemp (degC)",
-            "AirPress (Pa)",
-            "WindVel (m/s)",
-            "WindDir (deg)",
-        ]
-    ]
+    weather.data = weather.data[[
+        "Day",
+        "Time (HHMM)",
+        "Distance (km)",
+        "DirectSun (W/m2)",
+        "DiffuseSun (W/m2)",
+        "SunAzimuth (deg)",
+        "SunElevation (deg)",
+        "AirTemp (degC)",
+        "AirPress (Pa)",
+        "WindVel (m/s)",
+        "WindDir (deg)",
+        "dni10",
+        "dni90",
+        "dhi10",
+        "dhi90",
+        "Latitude",
+        "Longitude",
+    ]]
 
     weather.check_rectangular()
 
@@ -365,9 +413,10 @@ def combine_forecast(
     weather.title = (
         f'WSC forecast starting at {race_start.strftime("%Y-%m-%d")} '
         f"localised to UTC{race_start.utcoffset().seconds / 3600:+}, "
-        f'solcast forecast from {solcast_prediction_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}, '  # pylint: disable=line-too-long
+        f'solcast SDK forecast from {solcast_prediction_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}, '  # pylint: disable=line-too-long
         f'tomorrow forecast from {tomorrow_prediction_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}, '  # pylint: disable=line-too-long
-        f'generate at {datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}'  # pylint: disable=line-too-long
+        f'generate at {datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}'
+        # pylint: disable=line-too-long
     )
     return weather
 
@@ -382,16 +431,17 @@ def main(event, context):  # pylint: disable=unused-argument
     Returns:
         None
     """
+    logging.info("lambda function started")
     s3 = boto3.client("s3")
     # TODO: edit these before uploading to aws
     # Solcast only do prediction up to 7 day
     tz = pytz.timezone("Australia/Darwin")
-    # race_start = tz.localize(datetime(2023, 9, 12))
+    race_start = tz.localize(datetime(2023, 10, 22))
     # race_end = tz.localize(datetime(2023, 9, 17))
     today = datetime.combine(datetime.today().date(), datetime.min.time())
-    race_start = tz.localize(today + timedelta(1))
-    race_end = tz.localize(today + timedelta(14))
-    startime = race_start - timedelta(3)
+    # race_start = tz.localize(today + timedelta(1))
+    race_end = race_start + timedelta(7)
+    startime = tz.localize(today) - timedelta(1)
     output_file = "/tmp/Weather-DEV2.dat"
 
     def partition_filter(x):
@@ -419,17 +469,13 @@ def main(event, context):  # pylint: disable=unused-argument
     ]
 
     solcast = wr.s3.read_parquet(
-        "s3://duscweather/solcast/",
+        "s3://duscweather/solcast_SDK/",
         dataset=True,
         partition_filter=partition_filter,
     )
 
-    tomorrow.prediction_date = pd.to_datetime(
-        tomorrow.prediction_date.astype(str)
-    )
-    solcast.prediction_date = pd.to_datetime(
-        solcast.prediction_date.astype(str)
-    )
+    tomorrow.prediction_date = pd.to_datetime(tomorrow.prediction_date.astype(str))
+    solcast.prediction_date = pd.to_datetime(solcast.prediction_date.astype(str))
 
     # tomorrow = pd.read_parquet("tomorrow.parquet")
     # solcast = pd.read_parquet("solcast.parquet")
@@ -437,8 +483,9 @@ def main(event, context):  # pylint: disable=unused-argument
     road_df = road.data
 
     weather = combine_forecast(solcast, tomorrow, road_df, race_start, race_end)
+    logging.info("Writing tecplot...")
     weather.write_tecplot(output_file)
-
+    logging.info("Uploading tecplot...")
     #  write to S3 and overwrite the latest
     wr.s3.upload(
         output_file,
@@ -457,6 +504,7 @@ def main(event, context):  # pylint: disable=unused-argument
         Key=f"weather_files{datetime.now(tz=timezone.utc).strftime('%Y-%m')}/"
         f"Weather-latest.dat",
     )
+    logging.info("lambda function finished")
 
 
 if __name__ == "__main__":

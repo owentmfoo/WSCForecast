@@ -10,8 +10,7 @@ test_locations = [
 ]
 
 
-def get_locations():
-    n_points = 10 * len(solcast_api_keys)
+def get_locations(n_points=10 * len(solcast_api_keys)):
     road = tp.TecplotData(r"RoadFile-LatLon-2021.dat")
     locations = pd.DataFrame(
         np.linspace(0, 3030, n_points), columns=["Target Distance"]
