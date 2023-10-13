@@ -34,7 +34,7 @@ def main(event, context):  # pylint: disable=unused-argument
     os.environ["SOLCAST_API_KEY"] = solcast_api_keys[0]
     # Read road file and get the locations
     locations = get_locations(300)
-    # locations = test_locations
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
     period = "PT5M"
     df = []
