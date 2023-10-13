@@ -12,6 +12,7 @@ from solcast import forecast
 import numpy as np
 import datetime
 import dask
+from get_solcast_historic import get_spot_live
 
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
@@ -39,8 +40,10 @@ def main(event, context):  # pylint: disable=unused-argument
     period = "PT5M"
     df = []
     for _, location in locations.iterrows():
-        loc_df = dask.delayed(get_spot_forecast)(location, period, timestamp)
-        df.append(loc_df)
+        forecast_df = dask.delayed(get_spot_forecast)(location, period, timestamp)
+        df.append(forecast_df)
+        historic_df = dask.delayed(get_spot_live)(location, period, timestamp)
+        df.append(historic_df)
 
     df = dask.compute(*df)
     df2 = pd.concat(df)
