@@ -7,7 +7,7 @@ COPY RoadFile-LatLon-2021.dat ${LAMBDA_TASK_ROOT}
 COPY requirements.txt ${LAMBDA_TASK_ROOT}
 
 # Copy function code
-COPY combine_forecast.py ${LAMBDA_TASK_ROOT}
+COPY *.py ${LAMBDA_TASK_ROOT}
 
 # Install Git using the package manager (for Amazon Linux)
 RUN yum install -y git

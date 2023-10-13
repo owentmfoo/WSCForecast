@@ -20,7 +20,7 @@ formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(messag
 handler.setFormatter(formatter)
 
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
+root_logger.setLevel(logging.INFO)
 root_logger.addHandler(handler)
 
 s5_logger = logging.getLogger("S5")
@@ -46,8 +46,9 @@ def main(event, context):  # pylint: disable=unused-argument
         df.append(historic_df)
 
     df = dask.compute(*df)
+    logging.info("All requests completed.")
     df2 = pd.concat(df)
-    print(df2["latitude"].nunique())
+
     wr.s3.to_parquet(
         df=df2,
         path="s3://duscweather/solcast_SDK/",
