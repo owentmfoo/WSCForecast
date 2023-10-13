@@ -44,15 +44,15 @@ def main(event, context):  # pylint: disable=unused-argument
 
     df = dask.compute(*df)
     df2 = pd.concat(df)
-    print(df2['latitude'].nunique())
-    # wr.s3.to_parquet(
-    #     df=df2,
-    #     path="s3://duscweather/solcast_SDK/",
-    #     dataset=True,
-    #     mode="append",
-    #     filename_prefix="solcast_",
-    #     partition_cols=["prediction_date"],
-    # )
+    print(df2["latitude"].nunique())
+    wr.s3.to_parquet(
+        df=df2,
+        path="s3://duscweather/solcast_SDK/",
+        dataset=True,
+        mode="append",
+        filename_prefix="solcast_",
+        partition_cols=["prediction_date"],
+    )
 
 
 def get_spot_forecast(location, period, timestamp):
@@ -99,7 +99,6 @@ def get_spot_forecast(location, period, timestamp):
             loc_df["prediction_date"] = np.datetime64(pd.Timestamp(timestamp))
             return loc_df
         elif res.code == 429:
-            return None
             logging.info(
                 "rate limited for request %s, %d retry remaining, "
                 "retrying in %d seconds",
@@ -108,7 +107,9 @@ def get_spot_forecast(location, period, timestamp):
                 int(res.exception[-10:-8]) + 1,
             )
             time.sleep(int(res.exception[-10:-8]) + 1)
-    logging.error("Unable to get forecast for %s, error %s",location["Name"],res.exception)
+    logging.error("Unable to get forecast for %s, error %s",
+                  location["Name"],
+                  res.exception)
 
 if __name__ == "__main__":
     main(0, 0)

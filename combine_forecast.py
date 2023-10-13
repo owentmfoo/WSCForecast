@@ -218,10 +218,10 @@ def combine_forecast(
     if solcast.index.tz is None:
         solcast.index = solcast.index.tz_localize("UTC")
 
-    # shift the solcast timestamps forward bu 15 min so the values corresponds
+    # shift the solcast timestamps forward by 2.5 min so the values corresponds
     #  the centre of the period.
     # TODO: check period and adjust accordingly
-    solcast = solcast.shift(-15, "min")
+    solcast = solcast.shift(-2.5, "min")
 
     tomorrow = extract_data(
         tomorrow.loc[
@@ -281,6 +281,11 @@ def combine_forecast(
 
     solcast["WindDirX"] = np.sin(solcast["WindDir (deg)"] / 180 * np.pi)
     solcast["WindDirY"] = np.cos(solcast["WindDir (deg)"] / 180 * np.pi)
+
+    # do not extrapolate into the future if there is no forecast for it.
+    race_end = min(forecast.index.levels[1].max().to_pydatetime(), race_end)
+    race_end = race_end.astimezone(race_start.tzinfo)
+
     # interpolate to the desired resolution
     frame = pd.DataFrame(
         index=pd.date_range(race_start, race_end, freq="15min"),
@@ -431,12 +436,12 @@ def main(event, context):  # pylint: disable=unused-argument
     # TODO: edit these before uploading to aws
     # Solcast only do prediction up to 7 day
     tz = pytz.timezone("Australia/Darwin")
-    # race_start = tz.localize(datetime(2023, 9, 12))
+    race_start = tz.localize(datetime(2023, 10, 22))
     # race_end = tz.localize(datetime(2023, 9, 17))
     today = datetime.combine(datetime.today().date(), datetime.min.time())
-    race_start = tz.localize(today + timedelta(1))
-    race_end = tz.localize(today + timedelta(14))
-    startime = race_start - timedelta(3)
+    # race_start = tz.localize(today + timedelta(1))
+    race_end = race_start + timedelta(7)
+    startime = tz.localize(today) - timedelta(1)
     output_file = "/tmp/Weather-DEV2.dat"
 
     def partition_filter(x):
