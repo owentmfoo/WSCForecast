@@ -125,6 +125,7 @@ def calc_sunpos(df: pd.DataFrame) -> pd.DataFrame:
     Raises:
         AttributeError: If the DataFrame index is not pd.DateTimeIndex.
     """
+    logging.info("Calculating Sunpos.")
     if not isinstance(df.index, pd.DatetimeIndex):
         raise AttributeError("DataFrame index must DateTimeIndex.")
     sun_pos = solarposition.get_solarposition(df.index, df.Latitude, df.Longitude)
@@ -310,7 +311,7 @@ def combine_forecast(
             .set_index(["Distance (km)", "period_end"])
             .sort_values(by=["Distance (km)", "period_end"])
         )
-
+    logging.info('Interpolating data.')
     for param_name in [
         "DirectSun (W/m2)",
         "DiffuseSun (W/m2)",
@@ -441,7 +442,7 @@ def main(event, context):  # pylint: disable=unused-argument
     today = datetime.combine(datetime.today().date(), datetime.min.time())
     # race_start = tz.localize(today + timedelta(1))
     race_end = race_start + timedelta(7)
-    startime = tz.localize(today) - timedelta(1)
+    startime = tz.localize(datetime.today()) - timedelta(hours=2)
     output_file = "/tmp/Weather-DEV2.dat"
 
     def partition_filter(x):
@@ -474,14 +475,33 @@ def main(event, context):  # pylint: disable=unused-argument
         partition_filter=partition_filter,
     )
 
-    tomorrow.prediction_date = pd.to_datetime(tomorrow.prediction_date.astype(str))
-    solcast.prediction_date = pd.to_datetime(solcast.prediction_date.astype(str))
+    solcast = solcast.loc[:,
+              ["dni",
+               "dhi",
+               "air_temp",
+               "pressureSurfaceLevel",
+               "windSpeed",
+               "windDirection",
+               "latitude",
+               "longitude",
+               "period_end",
+               "prediction_date",
+               "dni10",
+               "dni90",
+               "dhi10",
+               "dhi90",
+               ]]
+    tomorrow.prediction_date = pd.to_datetime(
+        tomorrow.prediction_date.astype(str))
+    solcast.prediction_date = pd.to_datetime(
+        solcast.prediction_date.astype(str))
 
     # tomorrow = pd.read_parquet("tomorrow.parquet")
     # solcast = pd.read_parquet("solcast.parquet")
     road = tp.TecplotData(r"RoadFile-LatLon-2021.dat")
     road_df = road.data
 
+    logging.info("Data loaded from S3.")
     weather = combine_forecast(solcast, tomorrow, road_df, race_start, race_end)
     logging.info("Writing tecplot...")
     weather.write_tecplot(output_file)
