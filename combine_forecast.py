@@ -439,7 +439,7 @@ def main(event, context):  # pylint: disable=unused-argument
     tz = pytz.timezone("Australia/Darwin")
     race_start = tz.localize(datetime(2023, 10, 22))
     # race_end = tz.localize(datetime(2023, 9, 17))
-    today = datetime.combine(datetime.today().date(), datetime.min.time())
+    # today = datetime.combine(datetime.today().date(), datetime.min.time())
     # race_start = tz.localize(today + timedelta(1))
     race_end = race_start + timedelta(7)
     startime = tz.localize(datetime.today()) - timedelta(hours=2)
