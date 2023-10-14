@@ -311,7 +311,7 @@ def combine_forecast(
             .set_index(["Distance (km)", "period_end"])
             .sort_values(by=["Distance (km)", "period_end"])
         )
-    logging.info('Interpolating data.')
+    logging.info("Interpolating data.")
     for param_name in [
         "DirectSun (W/m2)",
         "DiffuseSun (W/m2)",
