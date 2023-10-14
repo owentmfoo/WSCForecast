@@ -441,7 +441,7 @@ def main(event, context):  # pylint: disable=unused-argument
     today = datetime.combine(datetime.today().date(), datetime.min.time())
     # race_start = tz.localize(today + timedelta(1))
     race_end = race_start + timedelta(7)
-    startime = tz.localize(today) - timedelta(1)
+    startime = tz.localize(today) - timedelta(hours=12)
     output_file = "/tmp/Weather-DEV2.dat"
 
     def partition_filter(x):
