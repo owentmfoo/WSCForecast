@@ -36,7 +36,7 @@ def main(event, context):  # pylint: disable=unused-argument
     # Read road file and get the locations
     locations = get_locations(300)
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
+    timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d%H%M")
     period = "PT5M"
     df = []
     for _, location in locations.iterrows():
